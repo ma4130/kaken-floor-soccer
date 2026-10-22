@@ -176,7 +176,7 @@ if (isProjector) {
 } else {
   app.innerHTML = `
     <div class="shell">
-      <header class="topbar"><a class="brand" href="/"><span class="brand-ball">✦</span><span>FLOOR<br><b>SOCCER</b></span></a><span class="top-label">KAKEN / INTERACTIVE FLOOR GAME</span><span class="live-pill"><i></i> LIVE EXPERIENCE</span></header>
+      <header class="topbar"><a class="brand" href="./"><span class="brand-ball">✦</span><span>FLOOR<br><b>SOCCER</b></span></a><span class="top-label">KAKEN / INTERACTIVE FLOOR GAME</span><span class="live-pill"><i></i> LIVE EXPERIENCE</span></header>
       <main>
         <section class="hero"><div><div class="eyebrow"><span>01 / INTERACTIVE GAME</span><span class="eyebrow-line"></span><span>CAMERA × PROJECTION</span></div><h1>足で、<em>決めろ。</em></h1><p>床に映ったボールをキックして、ゴールを狙おう。<br>カメラが足の動きをとらえ、光のフィールドに反映します。</p><div class="hero-actions"><button id="open-projector" class="button button-primary">↗ 投影画面を開く</button><a href="#setup" class="text-link">セットアップを見る <span>↓</span></a></div></div><div class="hero-decoration"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="hero-foot">⚽</span><span class="hero-deco-label">MOVE YOUR FEET<br>MAKE IT COUNT.</span></div></section>
         <section class="workspace" id="setup">
