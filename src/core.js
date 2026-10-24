@@ -39,24 +39,47 @@ export function mapPoint(h, x, y) {
 
 export function createGame() {
   return {
-    ball: { x: 0.5, y: 0.69, vx: 0, vy: 0 },
-    score: 0,
-    shots: 0,
+    ball: { x: 0.5, y: 0.5, vx: 0, vy: 0 },
+    scores: { blue: 0, pink: 0 },
+    shots: { blue: 0, pink: 0 },
     time: 60,
     running: false,
     flash: 0,
-    message: 'READY?',
+    flashTeam: null,
+    message: '1 VS 1',
     messageTime: 0,
     resetDelay: 0,
-    goalieX: 0.5,
-    goalieClock: 0,
     lastKicks: {},
     elapsed: 0
   };
 }
 
 export function resetBall(game) {
-  game.ball = { x: 0.5, y: 0.69, vx: 0, vy: 0 };
+  game.ball = { x: 0.5, y: 0.5, vx: 0, vy: 0 };
+}
+
+export function assignPoseTeams(candidates, previous = {}) {
+  if (!candidates.length) return [];
+  if (candidates.length === 1) {
+    const point = candidates[0];
+    const blueDistance = previous.blue ? Math.hypot(point.x - previous.blue.x, point.y - previous.blue.y) : Infinity;
+    const pinkDistance = previous.pink ? Math.hypot(point.x - previous.pink.x, point.y - previous.pink.y) : Infinity;
+    const team = Math.min(blueDistance, pinkDistance) < 0.35
+      ? (blueDistance <= pinkDistance ? 'blue' : 'pink')
+      : (point.x < 0.5 ? 'blue' : 'pink');
+    return [{ ...point, team }];
+  }
+  const [first, second] = candidates;
+  let firstTeam;
+  if (previous.blue && previous.pink) {
+    const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const normal = distance(first, previous.blue) + distance(second, previous.pink);
+    const swapped = distance(first, previous.pink) + distance(second, previous.blue);
+    firstTeam = normal <= swapped ? 'blue' : 'pink';
+  } else {
+    firstTeam = first.x <= second.x ? 'blue' : 'pink';
+  }
+  return [{ ...first, team: firstTeam }, { ...second, team: firstTeam === 'blue' ? 'pink' : 'blue' }];
 }
 
 export function stepGame(game, dt, feet = []) {
@@ -65,14 +88,12 @@ export function stepGame(game, dt, feet = []) {
   if (!game.running || dt === 0) return events;
   game.elapsed += dt;
   game.time = Math.max(0, game.time - dt);
-  game.goalieClock += dt;
-  game.goalieX = 0.5 + Math.sin(game.goalieClock * 1.65) * 0.105;
   game.flash = Math.max(0, game.flash - dt);
   game.messageTime = Math.max(0, game.messageTime - dt);
   if (game.resetDelay > 0) {
     game.resetDelay -= dt;
     if (game.resetDelay <= 0) resetBall(game);
-    if (game.time === 0) { game.running = false; game.message = 'TIME UP'; game.messageTime = 999; events.push('finish'); }
+    if (game.time === 0) finishGame(game, events);
     return events;
   }
 
@@ -86,12 +107,13 @@ export function stepGame(game, dt, feet = []) {
     const last = game.lastKicks[foot.id] ?? -10;
     if (distance < 0.052 && speed > 0.11 && game.elapsed - last > 0.22) {
       const directionX = distance > 0.001 ? dx / distance : 0;
-      const directionY = distance > 0.001 ? dy / distance : -1;
+      const directionY = distance > 0.001 ? dy / distance : 0;
       const strength = Math.min(0.86, Math.max(0.25, speed * 0.47));
       ball.vx = Math.max(-1.2, Math.min(1.2, ball.vx * 0.25 + (foot.vx || 0) * 0.8 + directionX * strength * 0.5));
       ball.vy = Math.max(-1.2, Math.min(1.2, ball.vy * 0.25 + (foot.vy || 0) * 0.8 + directionY * strength * 0.5));
       game.lastKicks[foot.id] = game.elapsed;
-      game.shots++;
+      const team = foot.team === 'pink' ? 'pink' : 'blue';
+      game.shots[team]++;
       events.push('kick');
     }
   }
@@ -102,34 +124,38 @@ export function stepGame(game, dt, feet = []) {
   ball.x += ball.vx * dt;
   ball.y += ball.vy * dt;
   const r = FIELD.ballRadius;
-  if (ball.x < 0.045 + r) { ball.x = 0.045 + r; ball.vx = Math.abs(ball.vx) * 0.72; }
-  if (ball.x > 0.955 - r) { ball.x = 0.955 - r; ball.vx = -Math.abs(ball.vx) * 0.72; }
-  if (ball.y > 0.92 - r) { ball.y = 0.92 - r; ball.vy = -Math.abs(ball.vy) * 0.72; }
-
-  // The goalie guards the goal mouth; a clean shot must pass either side of it.
-  if (ball.vy < 0 && ball.y - r < 0.145 && ball.y + r > 0.105 && Math.abs(ball.x - game.goalieX) < 0.058) {
-    ball.y = 0.145 + r;
-    ball.vy = Math.abs(ball.vy) * 0.76;
-    ball.vx += (ball.x < game.goalieX ? -1 : 1) * 0.07;
-    events.push('save');
+  if (ball.y < 0.058 + r) { ball.y = 0.058 + r; ball.vy = Math.abs(ball.vy) * 0.78; }
+  if (ball.y > 0.942 - r) { ball.y = 0.942 - r; ball.vy = -Math.abs(ball.vy) * 0.78; }
+  const inGoal = ball.y > 0.35 && ball.y < 0.65;
+  if (ball.x - r < 0.045) {
+    if (inGoal) scoreGoal(game, 'pink', events);
+    else { ball.x = 0.045 + r; ball.vx = Math.abs(ball.vx) * 0.78; }
   }
-  if (ball.y < 0.054) {
-    if (ball.x > 0.392 && ball.x < 0.608) {
-      game.score++;
-      game.flash = 0.65;
-      game.message = 'GOAL!';
-      game.messageTime = 1.5;
-      game.resetDelay = 1.25;
-      ball.vx = 0;
-      ball.vy = 0;
-      events.push('goal');
-    } else {
-      ball.y = 0.054;
-      ball.vy = Math.abs(ball.vy) * 0.72;
-    }
+  if (!game.resetDelay && ball.x + r > 0.955) {
+    if (inGoal) scoreGoal(game, 'blue', events);
+    else { ball.x = 0.955 - r; ball.vx = -Math.abs(ball.vx) * 0.78; }
   }
-  if (game.time === 0) { game.running = false; game.message = 'TIME UP'; game.messageTime = 999; events.push('finish'); }
+  if (game.time === 0) finishGame(game, events);
   return events;
+}
+
+function scoreGoal(game, team, events) {
+  game.scores[team]++;
+  game.flash = 0.75;
+  game.flashTeam = team;
+  game.message = `${team.toUpperCase()} GOAL!`;
+  game.messageTime = 1.35;
+  game.resetDelay = 1.1;
+  game.ball.vx = 0;
+  game.ball.vy = 0;
+  events.push('goal');
+}
+
+function finishGame(game, events) {
+  game.running = false;
+  game.message = game.scores.blue === game.scores.pink ? 'DRAW!' : `${game.scores.blue > game.scores.pink ? 'BLUE' : 'PINK'} WINS!`;
+  game.messageTime = 999;
+  events.push('finish');
 }
 
 export function footFromPose(landmarks, heelIndex, toeIndex) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, footFromPose, mapPoint, solveHomography, stepGame } from '../src/core.js';
+import { assignPoseTeams, createGame, footFromPose, mapPoint, solveHomography, stepGame } from '../src/core.js';
 
 test('camera quadrilateral maps onto the numbered floor markers', () => {
   const input = [[.18, .12], [.83, .16], [.92, .86], [.11, .82]];
@@ -24,25 +24,43 @@ test('visible heel and toe form a foot point', () => {
   assert.equal(footFromPose(landmarks, 29, 31), null);
 });
 
-test('a moving foot kicks the ball once per contact and the goal scores', () => {
-  const game = createGame();
-  game.running = true;
-  const events = stepGame(game, .016, [{ id: 'left', x: .5, y: .71, vx: 0, vy: -.8 }]);
-  assert.ok(events.includes('kick'));
-  assert.equal(game.shots, 1);
-  stepGame(game, .016, [{ id: 'left', x: .5, y: .71, vx: 0, vy: -.8 }]);
-  assert.equal(game.shots, 1);
-  game.ball = { x: .45, y: .06, vx: 0, vy: -.6 };
-  game.goalieClock = 2;
-  assert.ok(stepGame(game, .016).includes('goal'));
-  assert.equal(game.score, 1);
-  assert.equal(game.resetDelay > 0, true);
+test('pose teams stay assigned when the detector changes its output order', () => {
+  const first = assignPoseTeams([{ x: .25, y: .5 }, { x: .75, y: .5 }]);
+  assert.deepEqual(first.map(p => p.team), ['blue', 'pink']);
+  const reversed = assignPoseTeams([{ x: .76, y: .5 }, { x: .24, y: .5 }], {
+    blue: { x: .25, y: .5 }, pink: { x: .75, y: .5 }
+  });
+  assert.deepEqual(reversed.map(p => p.team), ['pink', 'blue']);
+  assert.equal(assignPoseTeams([{ x: .8, y: .5 }], { pink: { x: .76, y: .5 } })[0].team, 'pink');
 });
 
-test('one clear kick carries the ball from the starting point into attack', () => {
+test('each team gets its own kick count and scores in the opposite goal', () => {
   const game = createGame();
   game.running = true;
-  stepGame(game, .016, [{ id: 'left', x: .5, y: .72, vx: 0, vy: -.75 }]);
-  for (let i = 0; i < 60; i++) stepGame(game, 1 / 60);
-  assert.ok(game.ball.y < .25 || game.score > 0);
+  const events = stepGame(game, .016, [{ id: 'blue-left', team: 'blue', x: .47, y: .5, vx: .8, vy: 0 }]);
+  assert.ok(events.includes('kick'));
+  assert.deepEqual(game.shots, { blue: 1, pink: 0 });
+  stepGame(game, .016, [{ id: 'blue-left', team: 'blue', x: .47, y: .5, vx: .8, vy: 0 }]);
+  assert.equal(game.shots.blue, 1);
+  game.ball = { x: .94, y: .5, vx: .7, vy: 0 };
+  assert.ok(stepGame(game, .016).includes('goal'));
+  assert.deepEqual(game.scores, { blue: 1, pink: 0 });
+  assert.ok(game.resetDelay > 0);
+  for (let i = 0; i < 70; i++) stepGame(game, .016);
+  game.ball = { x: .06, y: .5, vx: -.7, vy: 0 };
+  assert.ok(stepGame(game, .016).includes('goal'));
+  assert.deepEqual(game.scores, { blue: 1, pink: 1 });
+});
+
+test('the ball rebounds outside the goal opening and match ends with a winner', () => {
+  const game = createGame();
+  game.running = true;
+  game.ball = { x: .94, y: .25, vx: .7, vy: 0 };
+  assert.ok(!stepGame(game, .016).includes('goal'));
+  assert.ok(game.ball.vx < 0);
+  game.scores.pink = 2;
+  game.time = .01;
+  assert.ok(stepGame(game, .016).includes('finish'));
+  assert.equal(game.message, 'PINK WINS!');
+  assert.equal(game.running, false);
 });
